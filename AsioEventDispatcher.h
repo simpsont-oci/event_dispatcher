@@ -15,6 +15,8 @@ public:
 
   std::shared_ptr<SystemTimer> get_timer() final;
 
+  boost::asio::io_service& get_io_service() { return io_service_; }
+
   using EventDispatcher::DispatchStatus;
 
 protected:

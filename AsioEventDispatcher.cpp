@@ -1,7 +1,6 @@
 #include "AsioEventDispatcher.h"
 
-//TODO This is a hack until real timer exists
-#include "ProactorSystemTimer.h"
+#include "AsioSystemTimer.h"
 
 #include "boost/asio.hpp"
 
@@ -25,7 +24,7 @@ AsioEventDispatcher::~AsioEventDispatcher()
 }
 
 std::shared_ptr<SystemTimer> AsioEventDispatcher::get_timer() {
-  return std::shared_ptr<SystemTimer>(new ProactorSystemTimer(nullptr));
+  return std::shared_ptr<SystemTimer>(new AsioSystemTimer(*this));
 }
 
 AsioEventDispatcher::DispatchStatus AsioEventDispatcher::simple_dispatch(const std::shared_ptr<EventProxy>& proxy)
