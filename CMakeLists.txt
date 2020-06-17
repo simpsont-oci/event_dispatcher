@@ -1,5 +1,5 @@
 cmake_minimum_required (VERSION 2.6) 
-project (event_dispatcher) 
+project (event_dispatcher)
 
 find_package (Boost COMPONENTS unit_test_framework system date_time REQUIRED)
 
@@ -10,7 +10,7 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
   SET( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -Werror -Wno-unused -g -std=c++14")
 endif()
 
-add_executable(event_test SystemTimer.cpp EventDispatcher.cpp ProactorEventDispatcher.cpp ProactorSystemTimer.cpp event_test.cpp)
+add_executable(event_test Barrier.cpp ThreadPool.cpp SystemTimer.cpp EventDispatcher.cpp AsioEventDispatcher.cpp ProactorEventDispatcher.cpp ProactorSystemTimer.cpp ReactorEventDispatcher.cpp event_test.cpp)
 target_include_directories(event_test PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../OpenDDS/ACE_TAO/ACE>)
 target_link_directories(event_test PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../OpenDDS/ACE_TAO/ACE/lib>)
 target_link_libraries(event_test ACE ${Boost_SYSTEM_LIBRARY} ${Boost_DATE_TIME_LIBRARY} pthread)

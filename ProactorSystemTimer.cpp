@@ -1,10 +1,5 @@
 #include "ProactorSystemTimer.h"
 
-//TODO REMOVE
-#include <iostream>
-#include <ctime>
-#include <iomanip>
-
 ProactorSystemTimer::ProactorSystemTimer(ProactorEventDispatcher* ped) : shutdown_(false), timer_id_(INVALID_TIMER), ped_(ped) {}
 
 ProactorSystemTimer::~ProactorSystemTimer() {
@@ -58,13 +53,8 @@ void ProactorSystemTimer::simple_async_wait(const std::shared_ptr<EventProxy>& p
 void ProactorSystemTimer::check_and_create_timer_i() {
   if (timer_id_ == INVALID_TIMER) {
     TimePoint now = std::chrono::system_clock::now();
-    //std::time_t expiry_time_t = std::chrono::system_clock::to_time_t(expiry_);
-    //std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
-    //std::cout << "expiry_ = " << std::put_time(std::localtime(&expiry_time_t), "%F %T") << std::endl;
-    //std::cout << "now() = " << std::put_time(std::localtime(&now_time_t), "%F %T") << std::endl;
     auto sec_delta = std::chrono::duration_cast<std::chrono::seconds>(expiry_ - now).count();
     auto usec_delta = std::chrono::duration_cast<std::chrono::microseconds>((expiry_ - now) - std::chrono::seconds(sec_delta)).count();
-    //std::cout << "delta -> time_t = " << std::chrono::system_clock::to_time_t(delta) << std::endl;
     ped_->proactor()->schedule_timer(*this, 0, ACE_Time_Value(sec_delta, usec_delta));
   }
 }

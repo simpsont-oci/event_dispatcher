@@ -3,21 +3,17 @@
 #include "EventDispatcher.h"
 #include "ThreadPool.h"
 
-#include "ace/Proactor.h"
+#include "ace/Event_Handler.h"
+#include "ace/TP_Reactor.h"
 
 #include <deque>
-#include <memory>
 #include <mutex>
-#include <thread>
-#include <vector>
 
-class ProactorEventDispatcher : public virtual ACE_Handler, public virtual EventDispatcher
+class ReactorEventDispatcher : public virtual ACE_Event_Handler, public virtual EventDispatcher
 {
 public:
-  ProactorEventDispatcher();
-  virtual ~ProactorEventDispatcher();
-
-  std::shared_ptr<ACE_Proactor> proactor() { return proactor_; }
+  ReactorEventDispatcher();
+  virtual ~ReactorEventDispatcher();
 
   std::shared_ptr<SystemTimer> get_timer() final;
 
@@ -27,13 +23,13 @@ protected:
 
   DispatchStatus simple_dispatch(const std::shared_ptr<EventProxy>& proxy) override;
 
-  void handle_time_out(const ACE_Time_Value&, const void* arg) override;
+  int handle_timeout(const ACE_Time_Value&, const void* arg) override;
 
   void release(const std::shared_ptr<EventProxy>& proxy);
 
   mutable std::mutex mutex_;
   bool shutdown_;
-  std::shared_ptr<ACE_Proactor> proactor_;
+  std::shared_ptr<ACE_TP_Reactor> reactor_;
   std::shared_ptr<ThreadPool> thread_pool_;
   std::deque<std::shared_ptr<EventProxy>> proxies_;
 };

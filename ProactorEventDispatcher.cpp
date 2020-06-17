@@ -5,10 +5,11 @@
 ProactorEventDispatcher::ProactorEventDispatcher() : shutdown_(false), proactor_(new ACE_Proactor()), thread_pool_(), proxies_()
 {
   const size_t THREAD_POOL_SIZE = 4;
-  for (size_t i = 0; i < THREAD_POOL_SIZE; ++i) {
-    thread_pool_.emplace_back(std::make_shared<std::thread>([&](){ proactor_->proactor_run_event_loop(); }));
-  }
   proactor_->number_of_threads(THREAD_POOL_SIZE);
+  thread_pool_.reset(new ThreadPool(THREAD_POOL_SIZE, [&](){
+    std::shared_ptr<ACE_Proactor> proactor(proactor_);
+    proactor->proactor_run_event_loop();
+  }));
 }
 
 ProactorEventDispatcher::~ProactorEventDispatcher()
@@ -19,16 +20,8 @@ ProactorEventDispatcher::~ProactorEventDispatcher()
   proactor_->cancel_timer(*this);
   proactor_->proactor_end_event_loop();
 
+  thread_pool_.reset();
   proactor_.reset();
-
-  const size_t THREAD_POOL_SIZE = 4;
-  for (size_t i = 0; i < THREAD_POOL_SIZE; ++i) {
-    std::shared_ptr<std::thread> temp = thread_pool_[i];
-    lock.unlock();
-    temp->join();
-    lock.lock();
-  }
-  thread_pool_.clear();
 
   proxies_.clear();
 }

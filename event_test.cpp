@@ -1,11 +1,9 @@
 #include "SystemTimer.h"
+#include "AsioEventDispatcher.h"
 #include "ProactorEventDispatcher.h"
+#include "ReactorEventDispatcher.h"
 
 #include "ace/Init_ACE.h"
-#include "ace/Proactor.h"
-#include "ace/TP_Reactor.h"
-
-#include "boost/asio.hpp"
 
 #include <chrono>
 #include <deque>
@@ -18,167 +16,6 @@
 #include <thread>
 #include <utility>
 #include <vector>
-
-/* ReactorEventDispatcher*/
-
-class ReactorEventDispatcher : public virtual ACE_Event_Handler, public virtual EventDispatcher
-{
-public:
-  ReactorEventDispatcher() : shutdown_(false), reactor_(), thread_pool_(), proxies_()
-  {
-    const size_t THREAD_POOL_SIZE = 4;
-    for (size_t i = 0; i < THREAD_POOL_SIZE; ++i) {
-      thread_pool_.emplace_back(std::make_shared<std::thread>([&] () {
-        while (!shutdown_) {
-          ACE_Time_Value temp(3, 0);
-          reactor_.handle_events(temp);
-        }
-      }));
-    }
-  }
-
-  virtual ~ReactorEventDispatcher()
-  {
-    std::unique_lock<std::mutex> lock(mutex_);
-
-    shutdown_ = true;
-
-    reactor_.cancel_timer(this);
-    reactor_.deactivate(1);
-
-    const size_t THREAD_POOL_SIZE = 4;
-    for (size_t i = 0; i < THREAD_POOL_SIZE; ++i) {
-      std::shared_ptr<std::thread> temp = thread_pool_[i];
-      lock.unlock();
-      temp->join();
-      lock.lock();
-    }
-    thread_pool_.clear();
-
-    reactor_.close();
-
-    proxies_.clear();
-  }
-
-  using EventDispatcher::DispatchStatus;
-
-protected:
-
-  DispatchStatus simple_dispatch(const std::shared_ptr<EventProxy>& proxy) override
-  {
-    std::unique_lock<std::mutex> lock(mutex_);
-    if (!shutdown_) {
-      auto it = proxies_.emplace(proxies_.end(), proxy);
-      reactor_.schedule_timer(this, &(*it), ACE_Time_Value::zero);
-    }
-    return DS_SUCCESS;
-  }
-
-  int handle_timeout(const ACE_Time_Value&, const void* arg) override {
-    const auto& proxy = *(static_cast<const std::shared_ptr<EventProxy>*>(arg));
-    proxy->handle_event();
-    release(proxy);
-    return 0;
-  }
-
-  void release(const std::shared_ptr<EventProxy>& proxy)
-  {
-    std::unique_lock<std::mutex> lock(mutex_);
-    if (!proxies_.empty() && proxies_.front() == proxy) {
-      proxies_.pop_front();
-      while (!proxies_.empty() && !proxies_.front()) {
-        proxies_.pop_front();
-      }
-    } else {
-      auto it = std::find(proxies_.begin(), proxies_.end(), proxy);
-      if (it != proxies_.end()) {
-        it->reset();
-      }
-    }
-  }
-
-  mutable std::mutex mutex_;
-  bool shutdown_;
-  ACE_TP_Reactor reactor_;
-  std::vector<std::shared_ptr<std::thread> > thread_pool_;
-  std::deque<std::shared_ptr<EventProxy>> proxies_;
-};
-
-/* AsioEventDispatcher*/
-
-class AsioEventDispatcher : public EventDispatcher
-{
-public:
-  AsioEventDispatcher() : shutdown_(false), io_service_(), io_service_work_(io_service_), thread_pool_(), proxies_()
-  {
-    const size_t THREAD_POOL_SIZE = 4;
-    for (size_t i = 0; i < THREAD_POOL_SIZE; ++i) {
-      thread_pool_.emplace_back(std::make_shared<std::thread>([&] () {
-        while (!io_service_.stopped())
-        {
-          io_service_.run_one();
-        }
-      }));
-    }
-  }
-
-  virtual ~AsioEventDispatcher()
-  {
-    std::unique_lock<std::mutex> lock(mutex_);
-
-    shutdown_ = true;
-    io_service_.stop();
-
-    const size_t THREAD_POOL_SIZE = 4;
-    for (size_t i = 0; i < THREAD_POOL_SIZE; ++i) {
-      std::shared_ptr<std::thread> temp = thread_pool_[i];
-      lock.unlock();
-      temp->join();
-      lock.lock();
-    }
-    thread_pool_.clear();
-  }
-
-  using EventDispatcher::DispatchStatus;
-
-protected:
-
-  DispatchStatus simple_dispatch(const std::shared_ptr<EventProxy>& proxy) override
-  {
-    const ACE_Time_Value ZERO(0, 0);
-    std::unique_lock<std::mutex> lock(mutex_);
-    if (!shutdown_) {
-      auto it = proxies_.emplace(proxies_.end(), proxy);
-      boost::asio::post(io_service_, [it] () {
-        (*it)->handle_event();
-      });
-    }
-    return DS_SUCCESS;
-  }
-
-  void release(const std::shared_ptr<EventProxy>& proxy)
-  {
-    std::unique_lock<std::mutex> lock(mutex_);
-    if (!proxies_.empty() && proxies_.front() == proxy) {
-      proxies_.pop_front();
-      while (!proxies_.empty() && !proxies_.front()) {
-        proxies_.pop_front();
-      }
-    } else {
-      auto it = std::find(proxies_.begin(), proxies_.end(), proxy);
-      if (it != proxies_.end()) {
-        it->reset();
-      }
-    }
-  }
-
-  mutable std::mutex mutex_;
-  bool shutdown_;
-  boost::asio::io_service io_service_;
-  boost::asio::io_service::work io_service_work_;
-  std::vector<std::shared_ptr<std::thread> > thread_pool_;
-  std::deque<std::shared_ptr<EventProxy>> proxies_;
-};
 
 /* Test Handlers */
 
@@ -382,6 +219,8 @@ void run_dispatcher_test_suite(std::shared_ptr<EventDispatcher> dispatcher) {
 class timer_func_obj : public EventProxy, public std::enable_shared_from_this<timer_func_obj> {
 public:
   timer_func_obj() = delete;
+  timer_func_obj(const timer_func_obj&) = delete;
+  timer_func_obj& operator=(const timer_func_obj&) = delete;
 
   void stop() {
     stopping_ = true;
@@ -463,26 +302,24 @@ void run_timer_test_suite(std::shared_ptr<EventDispatcher> dispatcher) {
   f2->stop();
 }
 
+void run_asio_tests() {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
+  run_dispatcher_test_suite(dispatcher);
+}
+
 void run_proactor_tests() {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
+  run_dispatcher_test_suite(dispatcher);
 
-  //run_dispatcher_test_suite(dispatcher);
-
-  dispatcher.reset();
-  ACE_OS::sleep(1);
-  dispatcher = std::make_shared<ProactorEventDispatcher>();
-
-  run_timer_test_suite(dispatcher);
+  //dispatcher.reset();
+  //ACE_OS::sleep(1);
+  //dispatcher = std::make_shared<ProactorEventDispatcher>();
+  //run_timer_test_suite(dispatcher);
 }
 
 void run_reactor_tests() {
-  //std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
-  //run_dispatcher_test_suite(dispatcher);
-}
-
-void run_asio_tests() {
-  //std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
-  //run_dispatcher_test_suite(dispatcher);
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
+  run_dispatcher_test_suite(dispatcher);
 }
 
 /* main */
@@ -493,6 +330,12 @@ int main(int, char**) {
 
   // to turn off ace proactor chatter
   ACE_Log_Category::ace_lib().priority_mask(0);
+
+  std::cout << "Begin AsioEventDispatcher Test" << std::endl;
+  run_asio_tests();
+  std::cout << "End AsioEventDispatcher Test" << std::endl;
+
+  std::cout << "- - - - - - - - - - - - - - - -" << std::endl;
 
   std::cout << "Begin ProactorEventDispatcher Test" << std::endl;
   run_proactor_tests();
@@ -505,12 +348,6 @@ int main(int, char**) {
   std::cout << "End ReactorEventDispatcher Test" << std::endl;
 
   ACE::fini();
-
-  std::cout << "- - - - - - - - - - - - - - - -" << std::endl;
-
-  std::cout << "Begin AsioEventDispatcher Test" << std::endl;
-  run_asio_tests();
-  std::cout << "End AsioEventDispatcher Test" << std::endl;
 
   return 0;
 }
