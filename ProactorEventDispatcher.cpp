@@ -14,12 +14,13 @@ ProactorEventDispatcher::ProactorEventDispatcher() : shutdown_(false), proactor_
 
 ProactorEventDispatcher::~ProactorEventDispatcher()
 {
-  std::unique_lock<std::mutex> lock(mutex_);
+  {
+    std::unique_lock<std::mutex> lock(mutex_);
 
-  shutdown_ = true;
-  proactor_->cancel_timer(*this);
-  proactor_->proactor_end_event_loop();
-
+    shutdown_ = true;
+    proactor_->cancel_timer(*this);
+    proactor_->proactor_end_event_loop();
+  }
   thread_pool_.reset();
   proactor_.reset();
 
