@@ -172,9 +172,9 @@ struct test_recursive_handler_fobj {
   call_state_ptr const_call_state_;
 };
 
-/* run_test */
+/* run_combo_test */
 
-void run_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
+void run_combo_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
 
   test_handler_void_call_state.reset();
   test_handler_std_func_call_state.reset();
@@ -297,12 +297,6 @@ void run_speed_test(std::shared_ptr<EventDispatcher> dispatcher) {
   std::cout << "run_speed_test finished in " << seconds << " seconds." << std::endl;
 }
 
-void run_dispatcher_test_suite(std::shared_ptr<EventDispatcher> dispatcher) {
-  run_test(dispatcher, 3);
-  run_speed_test(dispatcher);
-  run_test(dispatcher, 0); // Test clean shutdown
-}
-
 class timer_func_obj : public EventProxy, public std::enable_shared_from_this<timer_func_obj> {
 public:
   timer_func_obj() = delete;
@@ -336,7 +330,7 @@ private:
   std::string name_;
 };
 
-void run_timer_test_suite(std::shared_ptr<EventDispatcher> dispatcher) {
+void run_timer_test(std::shared_ptr<EventDispatcher> dispatcher) {
 
   auto timer = dispatcher->get_timer();
 
@@ -389,25 +383,7 @@ void run_timer_test_suite(std::shared_ptr<EventDispatcher> dispatcher) {
   f2->stop();
 }
 
-void run_asio_tests() {
-  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
-  run_dispatcher_test_suite(dispatcher);
-}
-
-void run_proactor_tests() {
-  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
-  run_dispatcher_test_suite(dispatcher);
-
-  //dispatcher.reset();
-  //ACE_OS::sleep(1);
-  //dispatcher = std::make_shared<ProactorEventDispatcher>();
-  //run_timer_test_suite(dispatcher);
-}
-
-void run_reactor_tests() {
-  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
-  run_dispatcher_test_suite(dispatcher);
-}
+/* AceTest (Google Test Fixture for init / fini of ACE) */
 
 class AceTest : public testing::Test {
 public:
@@ -424,12 +400,12 @@ public:
 
 TEST(EventDispatcherTests, AsioCombo) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
-  run_test(dispatcher, 3);
+  run_combo_test(dispatcher, 3);
 }
 
 TEST(EventDispatcherTests, AsioCleanShutdown) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
-  run_test(dispatcher, 0);
+  run_combo_test(dispatcher, 0);
 }
 
 TEST(EventDispatcherTests, AsioSpeed) {
@@ -437,16 +413,21 @@ TEST(EventDispatcherTests, AsioSpeed) {
   run_speed_test(dispatcher);
 }
 
+TEST(EventDispatcherTests, AsioTimer) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
+  run_timer_test(dispatcher);
+}
+
 /* Proactor */
 
 TEST_F(AceTest, ProactorCombo) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
-  run_test(dispatcher, 3);
+  run_combo_test(dispatcher, 3);
 }
 
 TEST_F(AceTest, ProactorCleanShutdown) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
-  run_test(dispatcher, 0);
+  run_combo_test(dispatcher, 0);
 }
 
 TEST_F(AceTest, ProactorSpeed) {
@@ -454,16 +435,21 @@ TEST_F(AceTest, ProactorSpeed) {
   run_speed_test(dispatcher);
 }
 
+TEST_F(AceTest, ProactorTimer) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
+  run_timer_test(dispatcher);
+}
+
 /* Reactor */
 
 TEST_F(AceTest, ReactorCombo) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
-  run_test(dispatcher, 3);
+  run_combo_test(dispatcher, 3);
 }
 
 TEST_F(AceTest, ReactorCleanShutdown) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
-  run_test(dispatcher, 0);
+  run_combo_test(dispatcher, 0);
 }
 
 TEST_F(AceTest, ReactorSpeed) {
@@ -471,34 +457,8 @@ TEST_F(AceTest, ReactorSpeed) {
   run_speed_test(dispatcher);
 }
 
-/* main */
-
-/*
-int main(int, char**) {
-
-  ACE::init();
-
-  // to turn off ace proactor chatter
-  ACE_Log_Category::ace_lib().priority_mask(0);
-
-  std::cout << "Begin AsioEventDispatcher Test" << std::endl;
-  run_asio_tests();
-  std::cout << "End AsioEventDispatcher Test" << std::endl;
-
-  std::cout << "- - - - - - - - - - - - - - - -" << std::endl;
-
-  std::cout << "Begin ProactorEventDispatcher Test" << std::endl;
-  run_proactor_tests();
-  std::cout << "End ProactorEventDispatcher Test" << std::endl;
-
-  std::cout << "- - - - - - - - - - - - - - - -" << std::endl;
-
-  std::cout << "Begin ReactorEventDispatcher Test" << std::endl;
-  run_reactor_tests();
-  std::cout << "End ReactorEventDispatcher Test" << std::endl;
-
-  ACE::fini();
-
-  return 0;
+TEST_F(AceTest, ReactorTimer) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
+  run_timer_test(dispatcher);
 }
-*/
+

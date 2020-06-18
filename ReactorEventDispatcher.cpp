@@ -1,7 +1,6 @@
 #include "ReactorEventDispatcher.h"
 
-//TODO This is a hack until real timer exists
-#include "ProactorSystemTimer.h"
+#include "ReactorSystemTimer.h"
 
 ReactorEventDispatcher::ReactorEventDispatcher() : shutdown_(false), reactor_(new ACE_TP_Reactor()), thread_pool_(), proxies_()
 {
@@ -34,7 +33,7 @@ ReactorEventDispatcher::~ReactorEventDispatcher()
 }
 
 std::shared_ptr<SystemTimer> ReactorEventDispatcher::get_timer() {
-  return std::shared_ptr<SystemTimer>(new ProactorSystemTimer(nullptr));
+  return std::shared_ptr<SystemTimer>(new ReactorSystemTimer(this));
 }
 
 ReactorEventDispatcher::DispatchStatus ReactorEventDispatcher::simple_dispatch(const std::shared_ptr<EventProxy>& proxy)

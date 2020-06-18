@@ -15,6 +15,8 @@ public:
   ReactorEventDispatcher();
   virtual ~ReactorEventDispatcher();
 
+  std::shared_ptr<ACE_TP_Reactor> tp_reactor() { return reactor_; }
+
   std::shared_ptr<SystemTimer> get_timer() final;
 
   using EventDispatcher::DispatchStatus;
