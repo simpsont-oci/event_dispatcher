@@ -2,4 +2,5 @@ CMakeCache.txt
 CMakeFiles/
 Makefile
 cmake_install.cmake
+libevent_dispatch.a
 event_test

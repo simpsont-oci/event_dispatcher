@@ -1,19 +1,19 @@
-cmake_minimum_required (VERSION 2.6) 
+cmake_minimum_required(VERSION 3.0)
+
+cmake_policy(SET CMP0048 NEW)
+
 project (event_dispatcher)
+find_package (Boost COMPONENTS system date_time REQUIRED)
+SET( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -Werror -Wno-unused -g -std=c++14")
+add_library(event_dispatch Barrier.cpp ThreadPool.cpp SystemTimer.cpp EventDispatcher.cpp AsioEventDispatcher.cpp AsioSystemTimer.cpp ProactorEventDispatcher.cpp ProactorSystemTimer.cpp ReactorEventDispatcher.cpp)
+target_include_directories(event_dispatch PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../OpenDDS/ACE_TAO/ACE>)
+target_link_directories(event_dispatch PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../OpenDDS/ACE_TAO/ACE/lib>)
+target_link_libraries(event_dispatch ACE ${Boost_SYSTEM_LIBRARY} ${Boost_DATE_TIME_LIBRARY} pthread)
 
-find_package (Boost COMPONENTS unit_test_framework system date_time REQUIRED)
-
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-  #SET( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -Werror -Wextra -Wcast-align -Wcast-qual -Wctor-dtor-privacy -Wdisabled-optimization -Wformat=2 -Winit-self -Wmissing-declarations -Wmissing-include-dirs -Wold-style-cast -Woverloaded-virtual -Wredundant-decls -Wshadow -Wsign-conversion -Wsign-promo -Wstrict-overflow=5 -Wswitch-default -Wundef -Werror -Wno-unused -g -std=c++14")
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-  #SET( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -Werror -Wextra -Wcast-align -Wcast-qual -Wctor-dtor-privacy -Wdisabled-optimization -Wformat=2 -Winit-self -Wlogical-op -Wmissing-declarations -Wmissing-include-dirs -Wnoexcept -Wold-style-cast -Woverloaded-virtual -Wredundant-decls -Wshadow -Wsign-conversion -Wsign-promo -Wstrict-null-sentinel -Wstrict-overflow=5 -Wswitch-default -Wundef -Werror -Wno-unused -g -std=c++14")
-  SET( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -Werror -Wno-unused -g -std=c++14")
-endif()
-
-add_executable(event_test Barrier.cpp ThreadPool.cpp SystemTimer.cpp EventDispatcher.cpp AsioEventDispatcher.cpp AsioSystemTimer.cpp ProactorEventDispatcher.cpp ProactorSystemTimer.cpp ReactorEventDispatcher.cpp event_test.cpp)
-target_include_directories(event_test PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../OpenDDS/ACE_TAO/ACE>)
-target_link_directories(event_test PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../OpenDDS/ACE_TAO/ACE/lib>)
-target_link_libraries(event_test ACE ${Boost_SYSTEM_LIBRARY} ${Boost_DATE_TIME_LIBRARY} pthread)
-
-#enable_testing()
-#add_test(NAME CppToolsTest COMMAND cpptools_test)
+project(my_gtest_pkgconfig VERSION 0.0.1 LANGUAGES CXX)
+find_package(PkgConfig)
+pkg_search_module(GTEST REQUIRED gtest_main)
+SET( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -Werror -Wno-unused -g -std=c++14")
+add_executable(event_test event_test.cpp)
+target_link_libraries(event_test event_dispatch ${GTEST_LDFLAGS})
+target_compile_options(event_test PUBLIC ${GTEST_CFLAGS})

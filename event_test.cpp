@@ -1,53 +1,101 @@
-#include "SystemTimer.h"
 #include "AsioEventDispatcher.h"
 #include "ProactorEventDispatcher.h"
 #include "ReactorEventDispatcher.h"
 
 #include "ace/Init_ACE.h"
 
-#include <chrono>
-#include <deque>
-#include <functional>
-#include <iostream>
-#include <list>
-#include <mutex>
-#include <set>
-#include <sstream>
-#include <thread>
-#include <utility>
-#include <vector>
+#include "gtest/gtest.h"
+
+/* Call State */
+
+class call_state {
+public:
+  call_state() : mutex_(), cv_(), count_(0) {
+  }
+
+  void reset() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    count_ = 0;
+    cv_.notify_all();
+  }
+
+  void call() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    ++count_;
+    cv_.notify_all();
+  }
+
+  void call() const {
+    std::unique_lock<std::mutex> lock(mutex_);
+    ++count_;
+    cv_.notify_all();
+  }
+
+  size_t count() const {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return count_;
+  }
+
+
+  template <typename Rep, typename Period>
+  bool wait_expected(const std::chrono::duration<Rep, Period>& rel_time, size_t expected) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return cv_.wait_for(lock, rel_time, [&]() -> bool { return count_ == expected; });
+  }
+
+private:
+
+  mutable std::mutex mutex_;
+  mutable std::condition_variable cv_;
+  mutable size_t count_;
+};
+
+typedef std::shared_ptr<call_state> call_state_ptr;
 
 /* Test Handlers */
 
+call_state test_handler_void_call_state;
 void test_handler_void() {
+  test_handler_void_call_state.call();
   //std::stringstream ss;
   //ss << "test_handler_void" << std::endl;
   //std::cout << ss.str() << std::flush;
 }
 
+call_state test_handler_std_func_call_state;
 void test_handler_std_func() {
+  test_handler_std_func_call_state.call();
   //std::stringstream ss;
   //ss << "test_handler_std_func" << std::endl;
   //std::cout << ss.str() << std::flush;
 }
 
+call_state test_handler_std_bind_call_state;
 void test_handler_std_bind(unsigned int a) {
+  test_handler_std_bind_call_state.call();
   //std::stringstream ss;
   //ss << "test_handler_std_bind a=" << a << std::endl;
   //std::cout << ss.str() << std::flush;
 }
 
 struct test_handler_fobj {
+  test_handler_fobj() : call_state_(new call_state()), const_call_state_(new call_state()) {}
+
   void operator()() {
+    call_state_->call();
     //std::stringstream ss;
     //ss << "test_handler_fobj" << std::endl;
     //std::cout << ss.str() << std::flush;
   }
   void operator()() const {
+    const_call_state_->call();
     //std::stringstream ss;
     //ss << "test_handler_fobj (const)" << std::endl;
     //std::cout << ss.str() << std::flush;
   }
+
+  call_state_ptr call_state_;
+  call_state_ptr const_call_state_;
 };
 
 struct test_recursive_handler_fobj {
@@ -56,15 +104,34 @@ struct test_recursive_handler_fobj {
   test_recursive_handler_fobj(test_recursive_handler_fobj&&) = delete;
   test_recursive_handler_fobj operator=(const test_recursive_handler_fobj&) = delete;
 
-  test_recursive_handler_fobj(EventDispatcher& dispatcher, const std::string& name, size_t height, size_t leaves = 1u) : dispatcher_(dispatcher), name_(name), height_(height), leaves_(leaves) {
+  test_recursive_handler_fobj(EventDispatcher& dispatcher, const std::string& name,
+    size_t height, size_t leaves = 1u,
+    const call_state_ptr& cs = call_state_ptr(),
+    const call_state_ptr& ccs = call_state_ptr())
+  : dispatcher_(dispatcher)
+  , name_(name)
+  , height_(height)
+  , leaves_(leaves)
+  , call_state_(cs)
+  , const_call_state_(ccs)
+  {
     //std::stringstream ss;
     //ss << "test_recursive_handler_fobj::test_recursive_handler_fobj() : " << height_ << " x " << leaves_ << std::endl;
     //std::cout << ss.str() << std::flush;
 
-    if (height_ > 0) {
-      handler_.reset(new test_recursive_handler_fobj(dispatcher_, name_, height_ - 1, leaves_));
+    if (!call_state_) {
+      call_state_.reset(new call_state());
+    }
+
+    if (!const_call_state_) {
+      const_call_state_.reset(new call_state());
+    }
+
+    if (height_ > 1) {
+      handler_.reset(new test_recursive_handler_fobj(dispatcher_, name_, height_ - 1, leaves_, call_state_, const_call_state_));
     }
   }
+
   ~test_recursive_handler_fobj() {
     //std::stringstream ss;
     //ss << "~test_recursive_handler_fobj::test_recursive_handler_fobj() : " << height_ << " x " << leaves_ << std::endl;
@@ -75,8 +142,8 @@ struct test_recursive_handler_fobj {
     //std::stringstream ss;
     //ss << "test_recursive_handler_fobj : " << name_ << " : " << height_ << " x " << leaves_ << std::endl;
     //std::cout << ss.str() << std::flush;
-
-    if (height_ > 0) {
+    call_state_->call();
+    if (height_ > 1) {
       for (size_t i = 0; i < leaves_; ++i) {
         dispatcher_.dispatch(*handler_);
       }
@@ -88,7 +155,8 @@ struct test_recursive_handler_fobj {
     //ss << "test_recursive_handler_fobj (const) : " << name_ << " : " << height_ << " x " << leaves_ << std::endl;
     //std::cout << ss.str() << std::flush;
 
-    if (height_ > 0) {
+    const_call_state_->call();
+    if (height_ > 1) {
       for (size_t i = 0; i < leaves_; ++i) {
         dispatcher_.dispatch(*handler_);
       }
@@ -100,11 +168,17 @@ struct test_recursive_handler_fobj {
   size_t height_;
   size_t leaves_;
   std::shared_ptr<test_recursive_handler_fobj> handler_;
+  call_state_ptr call_state_;
+  call_state_ptr const_call_state_;
 };
 
 /* run_test */
 
 void run_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
+
+  test_handler_void_call_state.reset();
+  test_handler_std_func_call_state.reset();
+  test_handler_std_bind_call_state.reset();
 
   // void()
   dispatcher->dispatch(test_handler_void);
@@ -119,7 +193,9 @@ void run_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
   dispatcher->dispatch(test_handler_fobj());
 
   // lambda
-  dispatcher->dispatch([] () {
+  call_state lambda_call_state;
+  dispatcher->dispatch([&] () {
+    lambda_call_state.call();
     //std::stringstream ss;
     //ss << "test_handler_lambda" << std::endl;
     //std::cout << ss.str() << std::flush;
@@ -138,10 +214,11 @@ void run_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
   dispatcher->dispatch(std::bind(&test_handler_std_bind, 7));
 
   // use EventProxy API
-  std::shared_ptr<EventProxy> proxy(new CopyProxy<test_handler_fobj>(fobj));
+  test_handler_fobj cp_fobj;
+  std::shared_ptr<EventProxy> proxy(new CopyProxy<test_handler_fobj>(cp_fobj));
   dispatcher->dispatch(proxy);
 
-  dispatcher->dispatch(std::shared_ptr<EventProxy>(new CopyProxy<test_handler_fobj>(fobj)));
+  dispatcher->dispatch(std::shared_ptr<EventProxy>(new CopyProxy<test_handler_fobj>(cp_fobj)));
 
   // recursive calls
   test_recursive_handler_fobj rfobj(*dispatcher, "depth", 6);
@@ -150,8 +227,18 @@ void run_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
   test_recursive_handler_fobj rfobj2(*dispatcher, "breadth", 3, 2);
   dispatcher->dispatch(rfobj2);
 
-  // custom sleep time
-  ACE_OS::sleep(delay);
+  if (delay != 0) {
+    auto dsec = std::chrono::seconds(delay);
+    ASSERT_TRUE(test_handler_void_call_state.wait_expected(dsec, 1)) << "actual count = " << test_handler_void_call_state.count();
+    ASSERT_TRUE(fobj.const_call_state_->wait_expected(dsec, 1)) << "actual count = " << fobj.call_state_->count();
+    ASSERT_TRUE(cfobj.const_call_state_->wait_expected(dsec, 1)) << "actual count = " << cfobj.const_call_state_->count();
+    ASSERT_TRUE(lambda_call_state.wait_expected(dsec, 1)) << "actual count = " << lambda_call_state.count();
+    ASSERT_TRUE(test_handler_std_func_call_state.wait_expected(dsec, 2)) << "actual count = " << test_handler_std_func_call_state.count();
+    ASSERT_TRUE(test_handler_std_bind_call_state.wait_expected(dsec, 2)) << "actual count = " << test_handler_std_bind_call_state.count();
+    ASSERT_TRUE(cp_fobj.const_call_state_->wait_expected(dsec, 2)) << "actual count = " << cp_fobj.const_call_state_->count();
+    ASSERT_TRUE(rfobj.const_call_state_->wait_expected(dsec, 6)) << "actual count = " << rfobj.const_call_state_->count(); // 6
+    ASSERT_TRUE(rfobj2.const_call_state_->wait_expected(dsec, 7)) << "actual count = " << rfobj2.const_call_state_->count(); // 4 + 2 + 1
+  }
 }
 
 class WaitHandler : public EventProxy {
@@ -160,7 +247,7 @@ public:
 
   void handle_event() final {
     std::unique_lock<std::mutex> lock(mutex_);
-    called_ = true;  
+    called_ = true;
     cv_.notify_all();
   }
 
@@ -202,7 +289,7 @@ void run_speed_test(std::shared_ptr<EventDispatcher> dispatcher) {
 
   auto end = std::chrono::high_resolution_clock::now();
 
-  handlers.clear(); 
+  handlers.clear();
 
   double seconds = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
   seconds /= 1e3;
@@ -322,8 +409,71 @@ void run_reactor_tests() {
   run_dispatcher_test_suite(dispatcher);
 }
 
+class AceTest : public testing::Test {
+public:
+  void SetUp() override {
+    ACE::init();
+    ACE_Log_Category::ace_lib().priority_mask(0);
+  }
+  void TearDown() override {
+    ACE::fini();
+  }
+};
+
+/* Asio */
+
+TEST(EventDispatcherTests, AsioCombo) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
+  run_test(dispatcher, 3);
+}
+
+TEST(EventDispatcherTests, AsioCleanShutdown) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
+  run_test(dispatcher, 0);
+}
+
+TEST(EventDispatcherTests, AsioSpeed) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
+  run_speed_test(dispatcher);
+}
+
+/* Proactor */
+
+TEST_F(AceTest, ProactorCombo) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
+  run_test(dispatcher, 3);
+}
+
+TEST_F(AceTest, ProactorCleanShutdown) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
+  run_test(dispatcher, 0);
+}
+
+TEST_F(AceTest, ProactorSpeed) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
+  run_speed_test(dispatcher);
+}
+
+/* Reactor */
+
+TEST_F(AceTest, ReactorCombo) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
+  run_test(dispatcher, 3);
+}
+
+TEST_F(AceTest, ReactorCleanShutdown) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
+  run_test(dispatcher, 0);
+}
+
+TEST_F(AceTest, ReactorSpeed) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
+  run_speed_test(dispatcher);
+}
+
 /* main */
 
+/*
 int main(int, char**) {
 
   ACE::init();
@@ -351,3 +501,4 @@ int main(int, char**) {
 
   return 0;
 }
+*/
