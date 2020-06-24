@@ -172,6 +172,32 @@ struct test_recursive_handler_fobj {
   call_state_ptr const_call_state_;
 };
 
+void run_void_handler_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
+  test_handler_void_call_state.reset();
+  dispatcher->dispatch(test_handler_void);
+
+  if (delay != 0) {
+    auto dsec = std::chrono::seconds(delay);
+    ASSERT_TRUE(test_handler_void_call_state.wait_expected(dsec, 1)) << "actual count = " << test_handler_void_call_state.count();
+  }
+}
+
+void run_fobj_handler_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
+  test_handler_fobj fobj;
+  dispatcher->dispatch(fobj);
+
+  const test_handler_fobj cfobj;
+  dispatcher->dispatch(cfobj);
+
+  dispatcher->dispatch(test_handler_fobj());
+
+  if (delay != 0) {
+    auto dsec = std::chrono::seconds(delay);
+    ASSERT_TRUE(fobj.const_call_state_->wait_expected(dsec, 1)) << "actual count = " << fobj.call_state_->count();
+    ASSERT_TRUE(cfobj.const_call_state_->wait_expected(dsec, 1)) << "actual count = " << cfobj.const_call_state_->count();
+  }
+}
+
 /* run_combo_test */
 
 void run_combo_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
@@ -193,9 +219,9 @@ void run_combo_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay)
   dispatcher->dispatch(test_handler_fobj());
 
   // lambda
-  call_state lambda_call_state;
-  dispatcher->dispatch([&] () {
-    lambda_call_state.call();
+  std::shared_ptr<call_state> lambda_call_state(new call_state());
+  dispatcher->dispatch([lambda_call_state] () {
+    lambda_call_state->call();
     //std::stringstream ss;
     //ss << "test_handler_lambda" << std::endl;
     //std::cout << ss.str() << std::flush;
@@ -232,7 +258,7 @@ void run_combo_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay)
     ASSERT_TRUE(test_handler_void_call_state.wait_expected(dsec, 1)) << "actual count = " << test_handler_void_call_state.count();
     ASSERT_TRUE(fobj.const_call_state_->wait_expected(dsec, 1)) << "actual count = " << fobj.call_state_->count();
     ASSERT_TRUE(cfobj.const_call_state_->wait_expected(dsec, 1)) << "actual count = " << cfobj.const_call_state_->count();
-    ASSERT_TRUE(lambda_call_state.wait_expected(dsec, 1)) << "actual count = " << lambda_call_state.count();
+    ASSERT_TRUE(lambda_call_state->wait_expected(dsec, 1)) << "actual count = " << lambda_call_state->count();
     ASSERT_TRUE(test_handler_std_func_call_state.wait_expected(dsec, 2)) << "actual count = " << test_handler_std_func_call_state.count();
     ASSERT_TRUE(test_handler_std_bind_call_state.wait_expected(dsec, 2)) << "actual count = " << test_handler_std_bind_call_state.count();
     ASSERT_TRUE(cp_fobj.const_call_state_->wait_expected(dsec, 2)) << "actual count = " << cp_fobj.const_call_state_->count();
@@ -297,7 +323,7 @@ void run_speed_test(std::shared_ptr<EventDispatcher> dispatcher) {
   std::cout << "run_speed_test finished in " << seconds << " seconds." << std::endl;
 }
 
-class timer_func_obj : public EventProxy, public std::enable_shared_from_this<timer_func_obj> {
+class timer_func_obj : public EventProxy, public call_state, public std::enable_shared_from_this<timer_func_obj> {
 public:
   timer_func_obj() = delete;
   timer_func_obj(const timer_func_obj&) = delete;
@@ -307,18 +333,19 @@ public:
     stopping_ = true;
   }
 
-  timer_func_obj(std::shared_ptr<SystemTimer>& timer, const std::string& name) : stopping_(false), timer_(timer), name_(name) {}
+  timer_func_obj(std::shared_ptr<SystemTimer>& timer, const std::string& name, const SystemTimer::Duration& period) : stopping_(false), timer_(timer), name_(name), period_(period) {}
 
   void handle_event() final {
     {
-      std::stringstream ss;
-      ss << "Timer Handler " << name_ << std::endl;
-      std::cout << ss.str() << std::flush;
+      //std::stringstream ss;
+      //ss << "Timer Handler " << name_ << std::endl;
+      //std::cout << ss.str() << std::flush;
     }
+    call();
     if (!stopping_) {
       auto timer = timer_.lock();
       if (timer) {
-        timer->expires_after(std::chrono::seconds(2));
+        timer->expires_after(period_);
         timer->async_wait(std::dynamic_pointer_cast<EventProxy>(shared_from_this()));
       }
     }
@@ -328,79 +355,134 @@ private:
   bool stopping_;
   std::weak_ptr<SystemTimer> timer_;
   std::string name_;
+  SystemTimer::Duration period_;
 };
 
-void run_timer_test(std::shared_ptr<EventDispatcher> dispatcher) {
+void run_combo_timer_test(std::shared_ptr<EventDispatcher> dispatcher) {
 
   auto timer = dispatcher->get_timer();
 
-  timer->expires_after(std::chrono::seconds(3));
-  std::cout << "timer wait for 1" << std::endl;
-  auto cv_status = timer->wait_for(std::chrono::seconds(1));
-  std::cout << "timer wait for 1" << std::endl;
-  cv_status = timer->wait_for(std::chrono::seconds(1));
-  std::cout << "timer final wait" << std::endl;
+  timer->expires_after(std::chrono::seconds(1));
+
+  auto start1 = std::chrono::system_clock::now();
+  auto cv_status1 = timer->wait_for(std::chrono::milliseconds(200));
+  auto stop1 = std::chrono::system_clock::now();
+  ASSERT_EQ(cv_status1, std::cv_status::timeout);
+  auto delta1 = stop1 - start1;
+  ASSERT_TRUE(delta1 > std::chrono::milliseconds(180));
+  ASSERT_TRUE(delta1 < std::chrono::milliseconds(220));
+
+  auto start2 = std::chrono::system_clock::now();
+  auto cv_status2 = timer->wait_for(std::chrono::milliseconds(300));
+  auto stop2 = std::chrono::system_clock::now();
+  ASSERT_EQ(cv_status2, std::cv_status::timeout);
+  auto delta2 = stop2 - start2;
+  ASSERT_TRUE(delta2 > std::chrono::milliseconds(270));
+  ASSERT_TRUE(delta2 < std::chrono::milliseconds(330));
+
   timer->wait();
-  std::cout << "timer wait complete" << std::endl;
 
-  timer->expires_after(std::chrono::seconds(3));
+  timer->expires_after(std::chrono::milliseconds(350));
 
+  call_state cs;
   dispatcher->dispatch([&](){
     timer->async_wait([&](){
-      std::cout << "Timer Handler #1\n" << std::flush;
+      //std::cout << "cs.call() #1\n" << std::flush;
+      cs.call();
     });
   });
 
   dispatcher->dispatch([&](){
     timer->async_wait([&](){
-      std::cout << "Timer Handler #2\n" << std::flush;
+      //std::cout << "cs.call() #2\n" << std::flush;
+      cs.call();
     });
   });
 
   dispatcher->dispatch([&](){
     timer->async_wait([&](){
-      std::cout << "Timer Handler #3\n" << std::flush;
+      //std::cout << "cs.call() #3\n" << std::flush;
+      cs.call();
     });
   });
 
-  ACE_OS::sleep(4);
+  auto start3 = std::chrono::system_clock::now();
+
+  auto dsec = std::chrono::seconds(3);
+  ASSERT_TRUE(cs.wait_expected(dsec, 3)) << "actual count = " << cs.count();
+  auto stop3 = std::chrono::system_clock::now();
+  auto delta3 = stop3 - start3;
+  ASSERT_TRUE(delta3 > std::chrono::milliseconds(315));
+  ASSERT_TRUE(delta3 < std::chrono::milliseconds(385));
 
   // repeating timer
   auto timer2 = dispatcher->get_timer();
+  auto timer3 = dispatcher->get_timer();
 
-  timer->expires_after(std::chrono::seconds(1));
-  timer2->expires_after(std::chrono::seconds(2));
+  timer->expires_after(std::chrono::milliseconds(300));
+  timer2->expires_after(std::chrono::milliseconds(500));
+  timer3->expires_after(std::chrono::milliseconds(700));
 
-  std::shared_ptr<timer_func_obj> f1(new timer_func_obj(timer, "Alpha"));
-  std::shared_ptr<timer_func_obj> f2(new timer_func_obj(timer2, "Beta"));
+  std::shared_ptr<timer_func_obj> f1(new timer_func_obj(timer, "Alpha", std::chrono::milliseconds(300)));
+  std::shared_ptr<timer_func_obj> f2(new timer_func_obj(timer2, "Beta", std::chrono::milliseconds(500)));
+  std::shared_ptr<timer_func_obj> f3(new timer_func_obj(timer3, "Gamma", std::chrono::milliseconds(700)));
 
   timer->async_wait(std::dynamic_pointer_cast<EventProxy>(f1));
   timer2->async_wait(std::dynamic_pointer_cast<EventProxy>(f2));
+  timer3->async_wait(std::dynamic_pointer_cast<EventProxy>(f3));
 
-  ACE_OS::sleep(7);
+  std::this_thread::sleep_for(std::chrono::milliseconds(4400));
 
   f1->stop();
   f2->stop();
+  f3->stop();
+
+  ASSERT_EQ(f1->count(), 14);
+  ASSERT_EQ(f2->count(), 8);
+  ASSERT_EQ(f3->count(), 6);
 }
 
 /* AceTest (Google Test Fixture for init / fini of ACE) */
 
 class AceTest : public testing::Test {
 public:
-  void SetUp() override {
-    ACE::init();
-    ACE_Log_Category::ace_lib().priority_mask(0);
+  struct InitHelper {
+    InitHelper() {
+      ACE::init();
+      ACE_Log_Category::ace_lib().priority_mask(0);
+    }
+    ~InitHelper() {
+      ACE::fini();
+    }
+  };
+
+  AceTest() {
+    if (!init_helper_) {
+      init_helper_.reset(new InitHelper());
+    }
   }
-  void TearDown() override {
-    ACE::fini();
-  }
+
+private:
+  static std::shared_ptr<InitHelper> init_helper_;
 };
+
+std::shared_ptr<AceTest::InitHelper> AceTest::init_helper_ = std::shared_ptr<AceTest::InitHelper>();
 
 /* Asio */
 
+TEST(EventDispatcherTests, AsioVoid) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
+  run_void_handler_test(dispatcher, 10);
+}
+
+TEST(EventDispatcherTests, AsioFunObj) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
+  run_fobj_handler_test(dispatcher, 10);
+}
+
 TEST(EventDispatcherTests, AsioCombo) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
-  run_combo_test(dispatcher, 3);
+  run_combo_test(dispatcher, 10);
 }
 
 TEST(EventDispatcherTests, AsioCleanShutdown) {
@@ -415,14 +497,24 @@ TEST(EventDispatcherTests, AsioSpeed) {
 
 TEST(EventDispatcherTests, AsioTimer) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
-  run_timer_test(dispatcher);
+  run_combo_timer_test(dispatcher);
 }
 
 /* Proactor */
 
+TEST_F(AceTest, ProactorVoid) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
+  run_void_handler_test(dispatcher, 10);
+}
+
+TEST_F(AceTest, ProactorFunObj) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
+  run_fobj_handler_test(dispatcher, 10);
+}
+
 TEST_F(AceTest, ProactorCombo) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
-  run_combo_test(dispatcher, 3);
+  run_combo_test(dispatcher, 10);
 }
 
 TEST_F(AceTest, ProactorCleanShutdown) {
@@ -437,14 +529,24 @@ TEST_F(AceTest, ProactorSpeed) {
 
 TEST_F(AceTest, ProactorTimer) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
-  run_timer_test(dispatcher);
+  run_combo_timer_test(dispatcher);
 }
 
 /* Reactor */
 
+TEST_F(AceTest, ReactorVoid) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
+  run_void_handler_test(dispatcher, 10);
+}
+
+TEST_F(AceTest, ReactorFunObj) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
+  run_fobj_handler_test(dispatcher, 10);
+}
+
 TEST_F(AceTest, ReactorCombo) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
-  run_combo_test(dispatcher, 3);
+  run_combo_test(dispatcher, 10);
 }
 
 TEST_F(AceTest, ReactorCleanShutdown) {
@@ -459,6 +561,6 @@ TEST_F(AceTest, ReactorSpeed) {
 
 TEST_F(AceTest, ReactorTimer) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
-  run_timer_test(dispatcher);
+  run_combo_timer_test(dispatcher);
 }
 
