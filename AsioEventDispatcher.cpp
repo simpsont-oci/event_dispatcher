@@ -17,10 +17,14 @@ AsioEventDispatcher::AsioEventDispatcher() : shutdown_(false), io_service_(), io
 
 AsioEventDispatcher::~AsioEventDispatcher()
 {
-  std::unique_lock<std::mutex> lock(mutex_);
+  {
+    std::unique_lock<std::mutex> lock(mutex_);
 
-  shutdown_ = true;
-  io_service_.stop();
+    shutdown_ = true;
+    io_service_.stop();
+  }
+  thread_pool_.reset();
+  proxies_.clear();
 }
 
 std::shared_ptr<SystemTimer> AsioEventDispatcher::get_timer() {
