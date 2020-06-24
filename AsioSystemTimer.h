@@ -1,8 +1,12 @@
 #pragma once
 
 #include "AsioEventDispatcher.h"
+#include "SystemTimer.h"
 
 #include <boost/asio.hpp>
+
+#include <condition_variable>
+#include <mutex>
 
 class AsioSystemTimer : public virtual SystemTimer
 {
@@ -25,6 +29,8 @@ public:
 
 protected:
 
+  std::mutex mutex_;
+  std::condition_variable cv_;
   boost::asio::system_timer timer_;
 };
 

@@ -23,18 +23,19 @@ void AsioSystemTimer::wait() {
 }
 
 SystemTimer::ConVarStatus AsioSystemTimer::wait_for(const SystemTimer::Duration& duration) {
-  // TODO implement
-  return SystemTimer::ConVarStatus();
+  std::unique_lock<std::mutex> lock(mutex_);
+  return cv_.wait_for(lock, duration);
 }
 
 SystemTimer::ConVarStatus AsioSystemTimer::wait_until(const SystemTimer::TimePoint& timepoint) {
-  // TODO implement
-  return SystemTimer::ConVarStatus();
+  std::unique_lock<std::mutex> lock(mutex_);
+  return cv_.wait_until(lock, timepoint);
 }
 
 void AsioSystemTimer::simple_async_wait(const std::shared_ptr<EventProxy>& proxy) {
-  timer_.async_wait([=](const boost::system::error_code& error){
+  timer_.async_wait([&, proxy](const boost::system::error_code& error){
     if (error != boost::asio::error::operation_aborted) {
+      cv_.notify_all();
       proxy->handle_event();
     }
   });
