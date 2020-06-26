@@ -18,6 +18,7 @@ stages:
           PackageDeps: libboost-dev
     steps:
     - script: |
+        sudo apt --yes install $(PackageDeps)
         cmake .
         make
         ./event_test
