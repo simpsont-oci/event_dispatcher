@@ -12,7 +12,10 @@ stages:
   - job: Do_The_Thing
     pool:
       vmImage: 'ubuntu-latest'
-      PackageDeps: libboost-dev
+    strategy:
+      matrix:
+        GCC7:
+          PackageDeps: libboost-dev
     steps:
     - script: |
         cmake .
