@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.0)
 cmake_policy(SET CMP0048 NEW)
 
 project (event_dispatcher VERSION 0.0.1 LANGUAGES CXX)
-find_package (Boost COMPONENTS system date_time REQUIRED)
+find_package (Boost)
 find_package (OpenDDS)
 add_library(event_dispatch Barrier.cpp ThreadPool.cpp SystemTimer.cpp EventDispatcher.cpp AsioEventDispatcher.cpp AsioSystemTimer.cpp ProactorEventDispatcher.cpp ProactorSystemTimer.cpp ReactorEventDispatcher.cpp ReactorSystemTimer.cpp)
 target_compile_options(event_dispatch PUBLIC -Wall -pedantic -Werror -Wno-unused -g -std=${OPENDDS_STD})

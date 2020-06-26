@@ -15,11 +15,13 @@ stages:
     strategy:
       matrix:
         GCC7:
-          PackageDeps: libboost-dev
+          PackageDeps: libboost-dev googletest
     steps:
-    - script: |
-        sudo apt --yes install $(PackageDeps)
-        cmake .
-        make
-        ./event_test
-      displayName: 'Build and Run'
+    - script: sudo apt --yes install $(PackageDeps)
+      displayName: 'Install Package Dependencies'
+    - script: cmake -DCMAKE_PREFIX_PATH=./OpenDDS .
+      displayName: 'Configuration'
+    - script: make
+      displayName: 'Compile'
+    - script: ./event_test
+      displayName: 'Run Tests'
