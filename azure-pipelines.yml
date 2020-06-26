@@ -6,16 +6,16 @@
 trigger:
 - master
 
-pool:
-  vmImage: 'windows-latest'
-  vmImage: 'ubuntu-latest'
-  vmImage: 'macOS-latest'
-
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
-
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+stages:
+- stage: Make It So
+  jobs:
+  - job: Do The Thing
+    pool:
+      vmImage: 'ubuntu-latest'
+      PackageDeps: libboost-dev
+    steps:
+    - script: |
+        cmake .
+        make
+        ./event_test
+      displayName: 'Build and Run'
