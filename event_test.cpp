@@ -198,6 +198,78 @@ void run_fobj_handler_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t
   }
 }
 
+void run_lambda_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
+  std::shared_ptr<call_state> lambda_call_state(new call_state());
+  dispatcher->dispatch([lambda_call_state] () {
+    lambda_call_state->call();
+    //std::stringstream ss;
+    //ss << "test_handler_lambda" << std::endl;
+    //std::cout << ss.str() << std::flush;
+  });
+
+  if (delay != 0) {
+    auto dsec = std::chrono::seconds(delay);
+    ASSERT_TRUE(lambda_call_state->wait_expected(dsec, 1)) << "actual count = " << lambda_call_state->count();
+  }
+}
+
+void run_std_func_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
+
+  test_handler_std_func_call_state.reset();
+
+  std::function<void()> ffobj(test_handler_std_func);
+  dispatcher->dispatch(ffobj);
+
+  dispatcher->dispatch(std::function<void()>(test_handler_std_func));
+
+  if (delay != 0) {
+    auto dsec = std::chrono::seconds(delay);
+    ASSERT_TRUE(test_handler_std_func_call_state.wait_expected(dsec, 2)) << "actual count = " << test_handler_std_func_call_state.count();
+  }
+}
+
+void run_std_bind_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
+
+  test_handler_std_bind_call_state.reset();
+
+  auto bfobj = std::bind(&test_handler_std_bind, 15);
+  dispatcher->dispatch(bfobj);
+
+  dispatcher->dispatch(std::bind(&test_handler_std_bind, 7));
+
+  if (delay != 0) {
+    auto dsec = std::chrono::seconds(delay);
+    ASSERT_TRUE(test_handler_std_bind_call_state.wait_expected(dsec, 2)) << "actual count = " << test_handler_std_bind_call_state.count();
+  }
+}
+
+void run_proxy_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
+  test_handler_fobj cp_fobj;
+  std::shared_ptr<EventProxy> proxy(new CopyProxy<test_handler_fobj>(cp_fobj));
+  dispatcher->dispatch(proxy);
+
+  dispatcher->dispatch(std::shared_ptr<EventProxy>(new CopyProxy<test_handler_fobj>(cp_fobj)));
+
+  if (delay != 0) {
+    auto dsec = std::chrono::seconds(delay);
+    ASSERT_TRUE(cp_fobj.const_call_state_->wait_expected(dsec, 2)) << "actual count = " << cp_fobj.const_call_state_->count();
+  }
+}
+
+void run_recursive_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
+  test_recursive_handler_fobj rfobj(*dispatcher, "depth", 6);
+  dispatcher->dispatch(rfobj);
+
+  test_recursive_handler_fobj rfobj2(*dispatcher, "breadth", 3, 2);
+  dispatcher->dispatch(rfobj2);
+
+  if (delay != 0) {
+    auto dsec = std::chrono::seconds(delay);
+    ASSERT_TRUE(rfobj.const_call_state_->wait_expected(dsec, 6)) << "actual count = " << rfobj.const_call_state_->count(); // 6
+    ASSERT_TRUE(rfobj2.const_call_state_->wait_expected(dsec, 7)) << "actual count = " << rfobj2.const_call_state_->count(); // 4 + 2 + 1
+  }
+}
+
 /* run_combo_test */
 
 void run_combo_test(std::shared_ptr<EventDispatcher> dispatcher, uint32_t delay) {
@@ -419,13 +491,13 @@ void run_combo_timer_test(std::shared_ptr<EventDispatcher> dispatcher) {
   auto timer2 = dispatcher->get_timer();
   auto timer3 = dispatcher->get_timer();
 
-  timer->expires_after(std::chrono::milliseconds(300));
-  timer2->expires_after(std::chrono::milliseconds(500));
-  timer3->expires_after(std::chrono::milliseconds(700));
-
   std::shared_ptr<timer_func_obj> f1(new timer_func_obj(timer, "Alpha", std::chrono::milliseconds(300)));
   std::shared_ptr<timer_func_obj> f2(new timer_func_obj(timer2, "Beta", std::chrono::milliseconds(500)));
   std::shared_ptr<timer_func_obj> f3(new timer_func_obj(timer3, "Gamma", std::chrono::milliseconds(700)));
+
+  timer->expires_after(std::chrono::milliseconds(300));
+  timer2->expires_after(std::chrono::milliseconds(500));
+  timer3->expires_after(std::chrono::milliseconds(700));
 
   timer->async_wait(std::dynamic_pointer_cast<EventProxy>(f1));
   timer2->async_wait(std::dynamic_pointer_cast<EventProxy>(f2));
@@ -457,109 +529,184 @@ public:
   };
 
   AceTest() {
-    if (!init_helper_) {
-      init_helper_.reset(new InitHelper());
+    std::unique_lock<std::mutex> lock(s_mutex_);
+    if (!s_init_helper_) {
+      s_init_helper_.reset(new InitHelper());
     }
   }
 
 private:
-  static std::shared_ptr<InitHelper> init_helper_;
+  static std::mutex s_mutex_;
+  static std::shared_ptr<InitHelper> s_init_helper_;
 };
 
-std::shared_ptr<AceTest::InitHelper> AceTest::init_helper_ = std::shared_ptr<AceTest::InitHelper>();
+std::mutex AceTest::s_mutex_;
+std::shared_ptr<AceTest::InitHelper> AceTest::s_init_helper_ = std::shared_ptr<AceTest::InitHelper>();
+
+class ProactorEventDispatcherTestSuite : public AceTest {
+};
+
+class ReactorEventDispatcherTestSuite : public AceTest {
+};
+
 
 /* Asio */
 
-TEST(EventDispatcherTests, AsioVoid) {
+TEST(AsioEventDispatcherTestSuite, AsioVoid) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
   run_void_handler_test(dispatcher, 10);
 }
 
-TEST(EventDispatcherTests, AsioFunObj) {
+TEST(AsioEventDispatcherTestSuite, AsioFunObj) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
   run_fobj_handler_test(dispatcher, 10);
 }
 
-TEST(EventDispatcherTests, AsioCombo) {
+TEST(AsioEventDispatcherTestSuite, AsioLambda) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
+  run_lambda_test(dispatcher, 10);
+}
+
+TEST(AsioEventDispatcherTestSuite, AsioStdFunc) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
+  run_std_func_test(dispatcher, 10);
+}
+
+TEST(AsioEventDispatcherTestSuite, AsioStdBind) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
+  run_std_bind_test(dispatcher, 10);
+}
+
+TEST(AsioEventDispatcherTestSuite, AsioProxy) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
+  run_proxy_test(dispatcher, 10);
+}
+
+TEST(AsioEventDispatcherTestSuite, AsioRecursive) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
+  run_recursive_test(dispatcher, 10);
+}
+
+TEST(AsioEventDispatcherTestSuite, AsioCombo) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
   run_combo_test(dispatcher, 10);
 }
 
-TEST(EventDispatcherTests, AsioCleanShutdown) {
+TEST(AsioEventDispatcherTestSuite, AsioCleanShutdown) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
   run_combo_test(dispatcher, 0);
 }
 
-TEST(EventDispatcherTests, AsioSpeed) {
+TEST(AsioEventDispatcherTestSuite, AsioSpeed) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
   run_speed_test(dispatcher);
 }
 
-TEST(EventDispatcherTests, AsioTimer) {
+TEST(AsioEventDispatcherTestSuite, AsioTimer) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<AsioEventDispatcher>();
   run_combo_timer_test(dispatcher);
 }
 
 /* Proactor */
 
-TEST_F(AceTest, ProactorVoid) {
+TEST_F(ProactorEventDispatcherTestSuite, ProactorVoid) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
   run_void_handler_test(dispatcher, 10);
 }
 
-TEST_F(AceTest, ProactorFunObj) {
+TEST_F(ProactorEventDispatcherTestSuite, ProactorFunObj) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
   run_fobj_handler_test(dispatcher, 10);
 }
 
-TEST_F(AceTest, ProactorCombo) {
+TEST_F(ProactorEventDispatcherTestSuite, ProactorLambda) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
+  run_lambda_test(dispatcher, 10);
+}
+
+TEST_F(ProactorEventDispatcherTestSuite, ProactorStdFunc) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
+  run_std_func_test(dispatcher, 10);
+}
+
+TEST_F(ProactorEventDispatcherTestSuite, ProactorStdBind) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
+  run_std_bind_test(dispatcher, 10);
+}
+
+TEST_F(ProactorEventDispatcherTestSuite, ProactorProxy) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
+  run_proxy_test(dispatcher, 10);
+}
+
+TEST_F(ProactorEventDispatcherTestSuite, ProactorRecursive) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
+  run_recursive_test(dispatcher, 10);
+}
+
+TEST_F(ProactorEventDispatcherTestSuite, ProactorCombo) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
   run_combo_test(dispatcher, 10);
 }
 
-TEST_F(AceTest, ProactorCleanShutdown) {
+TEST_F(ProactorEventDispatcherTestSuite, ProactorCleanShutdown) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
   run_combo_test(dispatcher, 0);
 }
 
-TEST_F(AceTest, ProactorSpeed) {
+TEST_F(ProactorEventDispatcherTestSuite, ProactorSpeed) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
   run_speed_test(dispatcher);
 }
 
-TEST_F(AceTest, ProactorTimer) {
+TEST_F(ProactorEventDispatcherTestSuite, ProactorTimer) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ProactorEventDispatcher>();
   run_combo_timer_test(dispatcher);
 }
 
 /* Reactor */
 
-TEST_F(AceTest, ReactorVoid) {
+TEST_F(ReactorEventDispatcherTestSuite, ReactorVoid) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
   run_void_handler_test(dispatcher, 10);
 }
 
-TEST_F(AceTest, ReactorFunObj) {
+TEST_F(ReactorEventDispatcherTestSuite, ReactorFunObj) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
   run_fobj_handler_test(dispatcher, 10);
 }
 
-TEST_F(AceTest, ReactorCombo) {
+TEST_F(ReactorEventDispatcherTestSuite, ReactorLambda) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
+  run_lambda_test(dispatcher, 10);
+}
+
+TEST_F(ReactorEventDispatcherTestSuite, ReactorStdFunc) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
+  run_std_func_test(dispatcher, 10);
+}
+
+TEST_F(ReactorEventDispatcherTestSuite, ReactorStdBind) {
+  std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
+  run_std_bind_test(dispatcher, 10);
+}
+
+TEST_F(ReactorEventDispatcherTestSuite, ReactorCombo) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
   run_combo_test(dispatcher, 10);
 }
 
-TEST_F(AceTest, ReactorCleanShutdown) {
+TEST_F(ReactorEventDispatcherTestSuite, ReactorCleanShutdown) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
   run_combo_test(dispatcher, 0);
 }
 
-TEST_F(AceTest, ReactorSpeed) {
+TEST_F(ReactorEventDispatcherTestSuite, ReactorSpeed) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
   run_speed_test(dispatcher);
 }
 
-TEST_F(AceTest, ReactorTimer) {
+TEST_F(ReactorEventDispatcherTestSuite, ReactorTimer) {
   std::shared_ptr<EventDispatcher> dispatcher = std::make_shared<ReactorEventDispatcher>();
   run_combo_timer_test(dispatcher);
 }
