@@ -7,9 +7,9 @@ trigger:
 - master
 
 stages:
-- stage: Make It So
+- stage: Make_It_So
   jobs:
-  - job: Do The Thing
+  - job: Do_The_Thing
     pool:
       vmImage: 'ubuntu-latest'
       PackageDeps: libboost-dev
